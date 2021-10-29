@@ -130,6 +130,7 @@ class BernoulliRBM(TransformerMixin, BaseEstimator):
         n_components=256,
         *,
         learning_rate=0.1,
+        learning_rate_schedule=None,
         batch_size=10,
         n_iter=10,
         verbose=0,
@@ -137,10 +138,14 @@ class BernoulliRBM(TransformerMixin, BaseEstimator):
     ):
         self.n_components = n_components
         self.learning_rate = learning_rate
+        self.learning_rate_schedule = learning_rate_schedule
         self.batch_size = batch_size
         self.n_iter = n_iter
         self.verbose = verbose
         self.random_state = random_state
+
+        if self.learning_rate_schedule is not None:
+            assert len(self.learning_rate_schedule) == self.n_iter
 
     def transform(self, X):
         """Compute the hidden layer activation probabilities, P(h=1|v=X).
@@ -297,7 +302,7 @@ class BernoulliRBM(TransformerMixin, BaseEstimator):
 
         self._fit(X, self.random_state_)
 
-    def _fit(self, v_pos, rng):
+    def _fit(self, v_pos, rng, lr_factor=None):
         """Inner fit for one mini-batch.
 
         Adjust the parameters to maximize the likelihood of v using
@@ -316,6 +321,9 @@ class BernoulliRBM(TransformerMixin, BaseEstimator):
         h_neg = self._mean_hiddens(v_neg)
 
         lr = float(self.learning_rate) / v_pos.shape[0]
+        if lr_factor is not None:
+            lr *= lr_factor
+
         update = safe_sparse_dot(v_pos.T, h_pos, dense_output=True).T
         update -= np.dot(h_neg.T, v_neg)
         self.components_ += lr * update
@@ -400,21 +408,29 @@ class BernoulliRBM(TransformerMixin, BaseEstimator):
         verbose = self.verbose
         begin = time.time()
         for iteration in range(1, self.n_iter + 1):
+            if self.learning_rate_schedule is None:
+                lr_factor = 1.0
+            else:
+                lr_factor = self.learning_rate_schedule[iteration - 1]
+
             for batch_slice in batch_slices:
-                self._fit(X[batch_slice], rng)
+                self._fit(X[batch_slice], rng, lr_factor)
 
             if verbose:
-                end = time.time()
-                print(
-                    "[%s] Iteration %d, pseudo-likelihood = %.2f, time = %.2fs"
-                    % (
-                        type(self).__name__,
-                        iteration,
-                        self.score_samples(X).mean(),
-                        end - begin,
+                if iteration == 1 or iteration % verbose == 0:
+                    end = time.time()
+                    print(
+                        "[%s] Iteration %d, pseudo-likelihood = %.2f, learning_rate"
+                        " %.2e, time = %.2fs"
+                        % (
+                            type(self).__name__,
+                            iteration,
+                            self.score_samples(X).mean(),
+                            lr_factor * self.learning_rate,
+                            end - begin,
+                        )
                     )
-                )
-                begin = end
+                    begin = end
 
         return self
 
