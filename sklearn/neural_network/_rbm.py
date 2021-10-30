@@ -131,6 +131,7 @@ class BernoulliRBM(TransformerMixin, BaseEstimator):
         *,
         learning_rate=0.1,
         learning_rate_schedule=None,
+        early_stopping_criteria=np.inf,
         batch_size=10,
         n_iter=10,
         verbose=0,
@@ -139,6 +140,7 @@ class BernoulliRBM(TransformerMixin, BaseEstimator):
         self.n_components = n_components
         self.learning_rate = learning_rate
         self.learning_rate_schedule = learning_rate_schedule
+        self.early_stopping_criteria = early_stopping_criteria
         self.batch_size = batch_size
         self.n_iter = n_iter
         self.verbose = verbose
@@ -416,6 +418,8 @@ class BernoulliRBM(TransformerMixin, BaseEstimator):
             for batch_slice in batch_slices:
                 self._fit(X[batch_slice], rng, lr_factor)
 
+            pseudo_likelihood = self.score_samples(X).mean()
+
             if verbose:
                 if iteration == 1 or iteration % verbose == 0:
                     end = time.time()
@@ -425,12 +429,21 @@ class BernoulliRBM(TransformerMixin, BaseEstimator):
                         % (
                             type(self).__name__,
                             iteration,
-                            self.score_samples(X).mean(),
+                            pseudo_likelihood,
                             lr_factor * self.learning_rate,
                             end - begin,
                         )
                     )
                     begin = end
+
+            if pseudo_likelihood > self.early_stopping_criteria:
+                print(
+                    f"[{type(self).__name__}] Early stopping criteria satisfied after"
+                    f" {iteration} iterations, pesudo-likelihood ="
+                    f" {pseudo_likelihood:.2f}"
+                )
+
+                break
 
         return self
 
